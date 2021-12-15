@@ -1,79 +1,40 @@
-import csv
-import copy
-import cv2 as cv
+import cv2
 import mediapipe as mp
-from model import KeyPointClassifier
-from app_files import calc_landmark_list, draw_info_text, draw_landmarks, get_args, pre_process_landmark
+import time
 
+cap = cv2.VideoCapture(0)
 
-def main():
-    args = get_args()
+mpHands = mp.solutions.hands
+hands = mpHands.Hands()
+mpDraw = mp.solutions.drawing_utils
 
-    cap_device = args.device
-    cap_width = args.width
-    cap_height = args.height
+pTime = 0
+cTime = 0
 
-    use_static_image_mode = args.use_static_image_mode
-    min_detection_confidence = args.min_detection_confidence
-    min_tracking_confidence = args.min_tracking_confidence
+while True:
+    success, img = cap.read()
+    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(imgRGB)
+    # print(results.multi_hand_landmarks)
 
-    cap = cv.VideoCapture(cap_device)
-    cap.set(cv.CAP_PROP_FRAME_WIDTH, cap_width)
-    cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
+    if results.multi_hand_landmarks:
+        for handLms in results.multi_hand_landmarks:
+            for id, lm in enumerate(handLms.landmark):
+                # print(id, lm)
+                h, w, c = img.shape
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                print(id, cx, cy)
+                # if id == 4:
+                cv2.circle(img, (cx, cy), 15, (255, 0, 255), cv2.FILLED)
 
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(
-        static_image_mode=use_static_image_mode,
-        max_num_hands=1,
-        min_detection_confidence=min_detection_confidence,
-        min_tracking_confidence=min_tracking_confidence,
-    )
+            mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS)
 
-    keypoint_classifier = KeyPointClassifier()
+    cTime = time.time()
+    fps = 1 / (cTime - pTime)
+    pTime = cTime
 
-    with open('model/keypoint_classifier/keypoint_classifier_label.csv', encoding='utf-8-sig') as f:
-        keypoint_classifier_labels = csv.reader(f)
-        keypoint_classifier_labels = [
-            row[0] for row in keypoint_classifier_labels
-        ]
+    cv2.putText(img, str(int(fps)), (10, 70), cv2.FONT_HERSHEY_PLAIN, 3,
+                (255, 0, 255), 3)
 
-    while True:
-        key = cv.waitKey(10)
-        if key == 27:  # ESC
-            break
-
-        ret, image = cap.read()
-        if not ret:
-            break
-        image = cv.flip(image, 1) 
-        debug_image = copy.deepcopy(image)
-        # print(debug_image.shape)
-        # cv.imshow("debug_image",debug_image)
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-
-        image.flags.writeable = False
-        results = hands.process(image)
-        image.flags.writeable = True
-
-        if results.multi_hand_landmarks is not None:
-            for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
-                landmark_list = calc_landmark_list(debug_image, hand_landmarks)
-                pre_processed_landmark_list = pre_process_landmark(landmark_list)
-
-                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-
-                debug_image = draw_landmarks(debug_image, landmark_list)
-
-                debug_image = draw_info_text(
-                    debug_image,
-                    handedness,
-                    keypoint_classifier_labels[hand_sign_id])
-
-        cv.imshow('Hand Gesture Recognition', debug_image)
-
-    cap.release()
-    cv.destroyAllWindows()
-
-
-if __name__ == '__main__':
-    main()
+    cv2.imshow("Image", img)
+    cv2.waitKey(1)
